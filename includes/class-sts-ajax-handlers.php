@@ -60,6 +60,7 @@ class STS_AJAX_Handlers {
     private function verify_nonce() {
         if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'support_ticket_nonce')) {
             wp_send_json_error(array('message' => __('Security check failed.', 'support-ticket-system')));
+            exit;
         }
     }
     
@@ -79,33 +80,35 @@ class STS_AJAX_Handlers {
         $required_fields = array('order_id', 'product_name', 'issue_category', 'description', 'customer_name', 'customer_email');
         foreach ($required_fields as $field) {
             if (empty($_POST[$field])) {
-                wp_send_json_error(array('message' => sprintf(__('Field %s is required.', 'support-ticket-system'), $field)));
+                wp_send_json_error(array('message' => sprintf(__('%s is required.', 'support-ticket-system'), $field)));
             }
         }
         
         // Process file uploads
         $attachments = array();
         if (!empty($_FILES['attachments'])) {
-            $upload_dir = wp_upload_dir();
-            $support_ticket_dir = $upload_dir['basedir'] . '/support-tickets';
+            require_once(ABSPATH . 'wp-admin/includes/file.php');
             
-            // Create directory if it doesn't exist
-            if (!file_exists($support_ticket_dir)) {
-                wp_mkdir_p($support_ticket_dir);
-            }
+            $upload_overrides = array('test_form' => false);
+            $files = $_FILES['attachments'];
             
-            foreach ($_FILES['attachments']['name'] as $key => $name) {
-                if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
-                    $tmp_name = $_FILES['attachments']['tmp_name'][$key];
-                    $file_extension = pathinfo($name, PATHINFO_EXTENSION);
-                    $new_filename = uniqid() . '.' . $file_extension;
-                    $destination = $support_ticket_dir . '/' . $new_filename;
+            foreach ($files['name'] as $key => $value) {
+                if ($files['name'][$key]) {
+                    $file = array(
+                        'name'     => $files['name'][$key],
+                        'type'     => $files['type'][$key],
+                        'tmp_name' => $files['tmp_name'][$key],
+                        'error'    => $files['error'][$key],
+                        'size'     => $files['size'][$key]
+                    );
                     
-                    if (move_uploaded_file($tmp_name, $destination)) {
+                    $uploaded = wp_handle_upload($file, $upload_overrides);
+                    
+                    if ($uploaded && !isset($uploaded['error'])) {
                         $attachments[] = array(
-                            'name' => $name,
-                            'url' => $upload_dir['baseurl'] . '/support-tickets/' . $new_filename,
-                            'path' => $destination
+                            'name' => basename($uploaded['file']),
+                            'url'  => $uploaded['url'],
+                            'path' => $uploaded['file']
                         );
                     }
                 }
@@ -127,8 +130,11 @@ class STS_AJAX_Handlers {
             wp_send_json_error(array('message' => __('Failed to create ticket.', 'support-ticket-system')));
         }
         
+        // Generate unique ticket ID
+        $unique_ticket_id = 'STS-' . date('Ymd') . '-' . $ticket_id;
+        update_post_meta($ticket_id, 'ticket_id', $unique_ticket_id);
+        
         // Save ticket metadata
-        update_post_meta($ticket_id, 'ticket_id', $ticket_id); // Using post ID as ticket ID
         update_post_meta($ticket_id, 'order_id', intval($_POST['order_id']));
         update_post_meta($ticket_id, 'product_name', sanitize_text_field($_POST['product_name']));
         update_post_meta($ticket_id, 'issue_category', sanitize_text_field($_POST['issue_category']));
@@ -139,7 +145,9 @@ class STS_AJAX_Handlers {
         update_post_meta($ticket_id, 'last_update', current_time('mysql'));
         
         if (!empty($_POST['license_keys'])) {
-            $license_keys = is_array($_POST['license_keys']) ? array_map('sanitize_text_field', $_POST['license_keys']) : array(sanitize_text_field($_POST['license_keys']));
+            $license_keys = is_array($_POST['license_keys']) ? 
+                array_map('sanitize_text_field', $_POST['license_keys']) : 
+                array(sanitize_text_field($_POST['license_keys']));
             update_post_meta($ticket_id, 'license_keys', $license_keys);
         }
         
@@ -155,12 +163,19 @@ class STS_AJAX_Handlers {
         wp_set_object_terms($ticket_id, 'open', 'ticket_status');
         wp_set_object_terms($ticket_id, $_POST['priority'], 'ticket_priority');
         
-        // Send email notification (optional)
-        // $this->send_ticket_notification($ticket_id);
+        // Add to timeline
+        $timeline = array(array(
+            'date' => current_time('mysql'),
+            'action' => 'ticket_created',
+            'user' => wp_get_current_user(),
+            'description' => __('Ticket created', 'support-ticket-system')
+        ));
+        update_post_meta($ticket_id, 'status_history', $timeline);
         
         wp_send_json_success(array(
             'message' => __('Ticket created successfully!', 'support-ticket-system'),
-            'redirect_url' => home_url('/my-tickets/')
+            'redirect_url' => home_url('/my-tickets/'),
+            'ticket_id' => $unique_ticket_id
         ));
     }
     
@@ -184,28 +199,37 @@ class STS_AJAX_Handlers {
         
         // Check permissions
         $current_user = wp_get_current_user();
-        if ($ticket->post_author != $current_user->ID && !current_user_can('administrator') && !current_user_can('support_agent')) {
+        if ($ticket->post_author != $current_user->ID && 
+            !current_user_can('administrator') && 
+            !current_user_can('support_agent')) {
             wp_send_json_error(array('message' => __('You do not have permission to reply to this ticket.', 'support-ticket-system')));
         }
         
         // Process file uploads for reply
         $attachments = array();
         if (!empty($_FILES['attachments'])) {
-            $upload_dir = wp_upload_dir();
-            $support_ticket_dir = $upload_dir['basedir'] . '/support-tickets';
+            require_once(ABSPATH . 'wp-admin/includes/file.php');
             
-            foreach ($_FILES['attachments']['name'] as $key => $name) {
-                if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
-                    $tmp_name = $_FILES['attachments']['tmp_name'][$key];
-                    $file_extension = pathinfo($name, PATHINFO_EXTENSION);
-                    $new_filename = uniqid() . '.' . $file_extension;
-                    $destination = $support_ticket_dir . '/' . $new_filename;
+            $upload_overrides = array('test_form' => false);
+            $files = $_FILES['attachments'];
+            
+            foreach ($files['name'] as $key => $value) {
+                if ($files['name'][$key]) {
+                    $file = array(
+                        'name'     => $files['name'][$key],
+                        'type'     => $files['type'][$key],
+                        'tmp_name' => $files['tmp_name'][$key],
+                        'error'    => $files['error'][$key],
+                        'size'     => $files['size'][$key]
+                    );
                     
-                    if (move_uploaded_file($tmp_name, $destination)) {
+                    $uploaded = wp_handle_upload($file, $upload_overrides);
+                    
+                    if ($uploaded && !isset($uploaded['error'])) {
                         $attachments[] = array(
-                            'name' => $name,
-                            'url' => $upload_dir['baseurl'] . '/support-tickets/' . $new_filename,
-                            'path' => $destination
+                            'name' => basename($uploaded['file']),
+                            'url'  => $uploaded['url'],
+                            'path' => $uploaded['file']
                         );
                     }
                 }
@@ -236,15 +260,24 @@ class STS_AJAX_Handlers {
         // Update ticket's last update time
         update_post_meta($ticket_id, 'last_update', current_time('mysql'));
         
-        // If agent replied, change status to pending (waiting for customer)
+        // Update status based on who replied
         if (current_user_can('administrator') || current_user_can('support_agent')) {
             wp_set_object_terms($ticket_id, 'pending', 'ticket_status');
             update_post_meta($ticket_id, 'status', 'pending');
         } else {
-            // If customer replied, change status to open
             wp_set_object_terms($ticket_id, 'open', 'ticket_status');
             update_post_meta($ticket_id, 'status', 'open');
         }
+        
+        // Add to timeline
+        $timeline = get_post_meta($ticket_id, 'status_history', true) ?: array();
+        $timeline[] = array(
+            'date' => current_time('mysql'),
+            'action' => 'reply_added',
+            'user' => $current_user,
+            'description' => __('Reply added', 'support-ticket-system')
+        );
+        update_post_meta($ticket_id, 'status_history', $timeline);
         
         wp_send_json_success(array(
             'message' => __('Reply submitted successfully!', 'support-ticket-system')
@@ -271,7 +304,9 @@ class STS_AJAX_Handlers {
         
         // Check permissions
         $current_user = wp_get_current_user();
-        if ($ticket->post_author != $current_user->ID && !current_user_can('administrator') && !current_user_can('support_agent')) {
+        if ($ticket->post_author != $current_user->ID && 
+            !current_user_can('administrator') && 
+            !current_user_can('support_agent')) {
             wp_send_json_error(array('message' => __('You do not have permission to close this ticket.', 'support-ticket-system')));
         }
         
@@ -279,6 +314,16 @@ class STS_AJAX_Handlers {
         wp_set_object_terms($ticket_id, 'closed', 'ticket_status');
         update_post_meta($ticket_id, 'status', 'closed');
         update_post_meta($ticket_id, 'last_update', current_time('mysql'));
+        
+        // Add to timeline
+        $timeline = get_post_meta($ticket_id, 'status_history', true) ?: array();
+        $timeline[] = array(
+            'date' => current_time('mysql'),
+            'action' => 'ticket_closed',
+            'user' => $current_user,
+            'description' => __('Ticket closed', 'support-ticket-system')
+        );
+        update_post_meta($ticket_id, 'status_history', $timeline);
         
         wp_send_json_success(array(
             'message' => __('Ticket closed successfully.', 'support-ticket-system')
@@ -288,9 +333,8 @@ class STS_AJAX_Handlers {
     public function handle_agent_login() {
         $this->verify_nonce();
         
-        // This is a custom login for agents. We'll use WordPress login system.
         $credentials = array(
-            'user_login'    => isset($_POST['log']) ? $_POST['log'] : '',
+            'user_login'    => isset($_POST['log']) ? sanitize_user($_POST['log']) : '',
             'user_password' => isset($_POST['pwd']) ? $_POST['pwd'] : '',
             'remember'      => isset($_POST['rememberme']) ? true : false
         );
@@ -357,6 +401,7 @@ class STS_AJAX_Handlers {
         
         $ticket_ids = array_map('intval', $_POST['tickets']);
         $action = sanitize_text_field($_POST['bulk_action']);
+        $processed = 0;
         
         foreach ($ticket_ids as $ticket_id) {
             $ticket = get_post($ticket_id);
@@ -366,28 +411,35 @@ class STS_AJAX_Handlers {
             
             // Check permissions
             $current_user = wp_get_current_user();
-            if ($ticket->post_author != $current_user->ID && !current_user_can('administrator') && !current_user_can('support_agent')) {
+            $is_owner = $ticket->post_author == $current_user->ID;
+            $is_agent = current_user_can('administrator') || current_user_can('support_agent');
+            
+            if (!$is_owner && !$is_agent) {
                 continue;
             }
             
             switch ($action) {
                 case 'close':
-                    wp_set_object_terms($ticket_id, 'closed', 'ticket_status');
-                    update_post_meta($ticket_id, 'status', 'closed');
-                    update_post_meta($ticket_id, 'last_update', current_time('mysql'));
+                    if ($is_owner || $is_agent) {
+                        wp_set_object_terms($ticket_id, 'closed', 'ticket_status');
+                        update_post_meta($ticket_id, 'status', 'closed');
+                        update_post_meta($ticket_id, 'last_update', current_time('mysql'));
+                        $processed++;
+                    }
                     break;
                     
                 case 'assign':
-                    if (current_user_can('administrator') || current_user_can('support_agent')) {
+                    if ($is_agent) {
                         update_post_meta($ticket_id, 'assigned_agent', $current_user->ID);
                         update_post_meta($ticket_id, 'last_update', current_time('mysql'));
+                        $processed++;
                     }
                     break;
             }
         }
         
         wp_send_json_success(array(
-            'message' => __('Bulk action completed.', 'support-ticket-system')
+            'message' => sprintf(__('%d tickets processed.', 'support-ticket-system'), $processed)
         ));
     }
     
@@ -491,6 +543,7 @@ class STS_AJAX_Handlers {
         
         $agent_ids = array_map('intval', $_POST['agent_ids']);
         $action_type = sanitize_text_field($_POST['action_type']);
+        $processed = 0;
         
         foreach ($agent_ids as $agent_id) {
             $user = get_userdata($agent_id);
@@ -499,17 +552,16 @@ class STS_AJAX_Handlers {
             }
             
             if ($action_type === 'remove_role') {
-                // Remove support_agent role if user has it
                 if (in_array('support_agent', $user->roles)) {
                     $user->remove_role('support_agent');
                 }
-                // Remove the custom meta field
                 delete_user_meta($agent_id, 'is_explicit_support_agent');
+                $processed++;
             }
         }
         
         wp_send_json_success(array(
-            'message' => __('Agents removed successfully.', 'support-ticket-system')
+            'message' => sprintf(__('%d agents processed.', 'support-ticket-system'), $processed)
         ));
     }
 }
