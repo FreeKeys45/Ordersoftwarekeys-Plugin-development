@@ -1,0 +1,186 @@
+/**
+ * Admin Styles for Support Ticket System
+ */
+
+/* Dashboard Widget */
+.sts-dashboard-widget .inside {
+    margin: 0;
+    padding: 0;
+}
+
+.sts-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    padding: 12px;
+}
+
+.sts-stat-item {
+    text-align: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 4px solid #0073aa;
+}
+
+.sts-stat-item.total {
+    grid-column: span 2;
+    border-left-color: #46b450;
+}
+
+.sts-stat-number {
+    display: block;
+    font-size: 24px;
+    font-weight: bold;
+    color: #23282d;
+}
+
+.sts-stat-label {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+    margin-top: 5px;
+}
+
+/* Tickets List Table */
+.wrap.sts-tickets .tablenav {
+    margin: 10px 0;
+}
+
+.sts-ticket-status {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.sts-status-open {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.sts-status-in-progress {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.sts-status-resolved {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.sts-status-closed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.sts-priority {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sts-priority-low {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.sts-priority-medium {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.sts-priority-high {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.sts-priority-critical {
+    background: #721c24;
+    color: #ffffff;
+}
+
+/* Ticket Edit Page */
+.sts-ticket-meta-box .inside {
+    padding: 0;
+    margin: 0;
+}
+
+.sts-ticket-meta-fields {
+    padding: 12px;
+}
+
+.sts-meta-field {
+    margin-bottom: 15px;
+}
+
+.sts-meta-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.sts-meta-field select,
+.sts-meta-field input[type="text"] {
+    width: 100%;
+    max-width: 100%;
+}
+
+.sts-ticket-conversation {
+    margin-top: 20px;
+    border-top: 1px solid #ddd;
+    padding-top: 20px;
+}
+
+.sts-reply-box {
+    margin-top: 20px;
+}
+
+.sts-reply-box textarea {
+    width: 100%;
+    min-height: 100px;
+    margin-bottom: 10px;
+}
+
+/* Settings Page */
+.sts-settings-wrap {
+    max-width: 800px;
+}
+
+.sts-settings-section {
+    background: #fff;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.sts-settings-section h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.sts-form-table th {
+    width: 200px;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .sts-stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .sts-stat-item.total {
+        grid-column: span 1;
+    }
+    
+    .sts-settings-section {
+        padding: 15px;
+    }
+}
